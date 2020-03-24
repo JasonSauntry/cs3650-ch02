@@ -1,0 +1,22 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/parallels/CLionProjects/ch02/xmalloc.h
+stddef.h
+-
+
+/home/parallels/CLionProjects/ch02/xv6_malloc.c
+sys/mman.h
+-
+pthread.h
+-
+string.h
+-
+xmalloc.h
+/home/parallels/CLionProjects/ch02/xmalloc.h
+
