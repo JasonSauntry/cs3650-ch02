@@ -1,0 +1,1 @@
+/usr/bin/cc -g   CMakeFiles/ch02.dir/main.c.o CMakeFiles/ch02.dir/frag_main.c.o CMakeFiles/ch02.dir/hwx_malloc.c.o CMakeFiles/ch02.dir/ivec_main.c.o CMakeFiles/ch02.dir/list_main.c.o CMakeFiles/ch02.dir/opt_malloc.c.o CMakeFiles/ch02.dir/sys_malloc.c.o CMakeFiles/ch02.dir/xv6_malloc.c.o  -o ch02 
