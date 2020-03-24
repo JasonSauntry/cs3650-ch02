@@ -8,7 +8,7 @@ HDRS := $(wildcard *.h)
 SRCS := $(wildcard *.c)
 OBJS := $(SRCS:.c=.o)
 
-CFLAGS := -g -Og -Wall -Werror
+CFLAGS := -g -Og -Wall -Werror -pg
 LDLIBS := -lpthread
 
 all: $(BINS)
@@ -43,7 +43,7 @@ frag-hwx: frag_main.o hwx_malloc.o
 %.o : %.c $(HDRS) Makefile
 
 clean:
-	rm -f *.o $(BINS) time.tmp outp.tmp
+	rm -f *.o $(BINS) time.tmp outp.tmp gmon.out
 
 test:
 	perl test.pl

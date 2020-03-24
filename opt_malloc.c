@@ -8,7 +8,8 @@
 #include <stdatomic.h>
 #define NUMBER 6
 
-// #define LOG
+#define LOG
+// #define DEBUG
 
 // TODO: This file should be replaced by another allocator implementation.
 //
@@ -68,7 +69,7 @@ typedef struct free_box {
 	struct free_box* next;
 } free_box;
 
-const size_t box_size = 64;
+const size_t box_size = 80;
 const size_t bunch_pages = 12;
 size_t bunch_boxes() {
 	return (bunch_pages * PAGE_SIZE - sizeof(bunch_header)) / box_size;
@@ -168,6 +169,9 @@ bunch_header* init_bunch(void* mem, bunch_header* prev) {
 }
 
 void* lalloc(size_t size) {
+#ifdef LOG
+	printf("Lalloc\t%ld\n", size);
+#endif
 	big_box* big = mmap(0, size, PROT_READ | PROT_WRITE,
 			MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
 	big->box.bunch = 0;
@@ -176,6 +180,9 @@ void* lalloc(size_t size) {
 }
 
 void lfree(void* item, size_t size) {
+#ifdef LOG
+	puts("Lfree");
+#endif
 	check_rv(munmap(item, size));
 }
 
@@ -214,9 +221,16 @@ xmalloc(size_t orig_size)
 	// Get the first bunch with stuff in it.
 	bunch_header* bunch = sized_bucket->first_bunch;
 	bunch_header* prev = 0;
+	int count = 0;
+	// This loop rarerly iterates more than once.
 	for (bunch = sized_bucket->first_bunch; bunch && bunch->free_list_length == 0; bunch = bunch->next) {
 		prev = bunch;
+		count++;
 	}
+
+#ifdef DEBUG
+	printf("Loop iterations:\t%d\n", count);
+#endif
 
 	// TODO if there isn't a bunch available, map one.
 	if (!bunch) {
@@ -247,6 +261,9 @@ xmalloc(size_t orig_size)
 void
 xfree(void* item)
 {
+#ifdef DEBUG
+	puts("Free");
+#endif
 	used_box* ubox = box_header(item);
 	if (ubox->bunch == 0) {
 		// Large allocation;
@@ -273,6 +290,9 @@ xfree(void* item)
 void*
 xrealloc(void* prev, size_t bytes)
 {
+#ifdef DEBUG
+	puts("Realloc");
+#endif
 
 	header * allocated_node = (header *)((char*)prev-sizeof(header));
 	size_t old_size =  allocated_node->size-sizeof(header);
@@ -306,6 +326,14 @@ xrealloc(void* prev, size_t bytes)
 			xfree(prev);
 		}
 		// return new pointer.
+#ifdef DEBUG
+		puts("Done realloc");
+#endif
 		return ret;
 	}
+
+#ifdef DEBUG
+	puts("Done realloc");
+#endif
+
 }
