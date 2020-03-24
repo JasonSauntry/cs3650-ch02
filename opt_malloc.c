@@ -20,14 +20,20 @@
 //    one mutex to protect the free list. This has already been done for the
 //    provided xv6 allocator.
 //  - Implement the "realloc" function for this allocator.
-
-static pthread_mutex_t locks[NUMBER]={PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER,PTHREAD_MUTEX_INITIALIZER,PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER,PTHREAD_MUTEX_INITIALIZER};
-//static header * allocated_list[NUMBER]={NULL,NULL,NULL,NULL,NULL,NULL};
-//static node * free_list[NUMBER]={NULL,NULL,NULL,NULL,NULL,NULL};
-int arena_selector(){
-    pid_t pid= pthread_self();
-    for
-}
+// idea from http://www.ccs.neu.edu/home/kapil/courses/cs5600f17/hw3.html
+struct  MallocArena {
+    pthread_mutex_t lock;
+    node * head_node;
+    hm_stats stats; // This initializes the stats to 0.
+} MallocArena;
+__thread struct MallocArena * arena = NULL;
+//static pthread_mutex_t locks[NUMBER]={PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER,PTHREAD_MUTEX_INITIALIZER,PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER,PTHREAD_MUTEX_INITIALIZER};
+//static header * allocated_lists[NUMBER]={NULL,NULL,NULL,NULL,NULL,NULL};
+//static node * free_lists[NUMBER]={NULL,NULL,NULL,NULL,NULL,NULL};
+//int arena_selector(){
+//    pid_t pid= pthread_self();
+//    for
+//}
 
 
 void
@@ -44,14 +50,14 @@ check_rv(int rv)
 
 
 const size_t PAGE_SIZE = 4096;
-static hm_stats stats; // This initializes the stats to 0.
-node * head_node = 0;
+
+
 
 void coalesce(){
-    if(head_node==0){
+    if(arena->head_node==0){
         return;
     }else{
-        node * current = head_node;
+        node * current = arena->head_node;
 //        node * previous = 0;
         while(current&&current->next){
             if(((char *)current+current->size)==((char *)current->next)){
@@ -74,7 +80,7 @@ void coalesce(){
 //                    }
 //                }
                 // restart the loop to combine more free spaces
-                current=head_node;
+                current=arena->head_node;
                 continue;
             }
 //            previous=current;
@@ -87,7 +93,7 @@ free_list_length()
 {
     long ans = 0;
     // TODO: Calculate the length of the free list.
-    node * next = head_node;
+    node * next = arena->head_node;
     while(next){
         ++ans;
         next=next->next;
@@ -100,20 +106,20 @@ free_list_length()
 hm_stats*
 hgetstats()
 {
-    stats.free_length = free_list_length();
-    return &stats;
+    arena->stats.free_length = free_list_length();
+    return &arena->stats;
 }
 
 void
 hprintstats()
 {
-    stats.free_length = free_list_length();
+    arena->stats.free_length = free_list_length();
     fprintf(stderr, "\n== husky malloc stats ==\n");
-    fprintf(stderr, "Mapped:   %ld\n", stats.pages_mapped);
-    fprintf(stderr, "Unmapped: %ld\n", stats.pages_unmapped);
-    fprintf(stderr, "Allocs:   %ld\n", stats.chunks_allocated);
-    fprintf(stderr, "Frees:    %ld\n", stats.chunks_freed);
-    fprintf(stderr, "Freelen:  %ld\n", stats.free_length);
+    fprintf(stderr, "Mapped:   %ld\n", arena->stats.pages_mapped);
+    fprintf(stderr, "Unmapped: %ld\n", arena->stats.pages_unmapped);
+    fprintf(stderr, "Allocs:   %ld\n", arena->stats.chunks_allocated);
+    fprintf(stderr, "Frees:    %ld\n", arena->stats.chunks_freed);
+    fprintf(stderr, "Freelen:  %ld\n", arena->stats.free_length);
 
 //    node * current=head_node;
 //    printf("current: %p, current->size: %zu, addition: %p, current->next: %p, subtraction: %ld, sizeof(size_t): %ld,sizeof(header): %ld, sizeof(node): %ld\n",
@@ -136,20 +142,27 @@ div_up(size_t xx, size_t yy)
         return zz + 1;
     }
 }
+void initialize_arena(struct MallocArena * arena){
+    arena->head_node=0;
+    pthread_mutex_init ( &arena->lock, NULL);
+    memset(&arena->stats, 0, sizeof(hm_stats));
+}
 
 void*
 xmalloc(size_t size)
 {
-    int pid = arena_selector();
+    if(arena==NULL){
+        initialize_arena(arena);
+    }
 
-    stats.chunks_allocated += 1;
+    arena->stats.chunks_allocated += 1;
     size += sizeof(header);
 
     if(size<sizeof(node)){
         size=sizeof(node);
     }
 
-    pthread_mutex_lock(&locks[pid]);
+    pthread_mutex_lock(&arena->lock);
 
 
     if(size>PAGE_SIZE) {
@@ -158,19 +171,19 @@ xmalloc(size_t size)
         void *pointer = mmap(0, total_size_of_memory, PROT_WRITE | PROT_READ | PROT_EXEC,MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
         check_rv(*((int *) pointer));
 
-        stats.pages_mapped += number_of_pages;
+        arena->stats.pages_mapped += number_of_pages;
         // write header
 //        header p1 = {total_size_of_memory}; // need to check later
 //        *((header *) pointer) = p1;
         header * tmp = ((header *) pointer);
         tmp->size=total_size_of_memory;
-        pthread_mutex_unlock(&locks[pid]);
+        pthread_mutex_unlock(&arena->lock);
 
         //hprintstats();
         return (void *)((char *)pointer+sizeof(header));
     }else {
         // get idea from https://www.geeksforgeeks.org/insertion-sort-for-singly-linked-list/
-        node *current = head_node;
+        node *current = arena->head_node;
         node *previous = 0;
         while(current&& current->size<size){
             previous=current;
@@ -181,18 +194,18 @@ xmalloc(size_t size)
             void *pointer = mmap(0, PAGE_SIZE, PROT_WRITE | PROT_READ | PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
             check_rv(*((int *) pointer));
 
-            stats.pages_mapped=stats.pages_mapped+1;
+            arena->stats.pages_mapped=arena->stats.pages_mapped+1;
             node * new_node =((node *)pointer);
             new_node->size=PAGE_SIZE;
             // reverse order linked list insert, not sorted.
             // insert the next
-            new_node->next=head_node;
+            new_node->next=arena->head_node;
 
             // insert the previous
-            head_node = new_node;
+            arena->head_node = new_node;
 
             //reset previous and current
-            current=head_node;
+            current=arena->head_node;
             previous=0;
         }
         // case 1: if the leftover is big enough to store a free list cell, return the extra to the free list.
@@ -209,7 +222,7 @@ xmalloc(size_t size)
                 previous->next= new_free_list_node;
             }else{
                 // if previous is null, then the current node is the header
-                head_node = new_free_list_node;
+                arena->head_node = new_free_list_node;
             }
         }
             // case 2: if the leftover is not big enough to store a free list cell, then don't create a new node.
@@ -218,7 +231,7 @@ xmalloc(size_t size)
             if(previous){
                 previous->next=current->next;
             }else{
-                head_node=current->next;
+                arena->head_node=current->next;
             }
             // fill in all the size, since no extra space left.
             size=current->size;
@@ -227,7 +240,7 @@ xmalloc(size_t size)
         ((header*)((void*)current))->size=size;
         //printf("free_list_node_size is: %\n" ,((header*)current)->size);
         //hprintstats();
-        pthread_mutex_unlock(&locks[pid]);
+        pthread_mutex_unlock(&arena->lock);
 
         return (void*)((char *)current+sizeof(header));
 
@@ -238,10 +251,9 @@ xmalloc(size_t size)
 void
 xfree(void* item)
 {
-    int pid = arena_selector();
-    pthread_mutex_lock(&locks[pid]);
+    pthread_mutex_lock(&arena->lock);
 
-    stats.chunks_freed += 1;
+    arena->stats.chunks_freed += 1;
     void * header_pointer =(void *)((char *)item - sizeof(header));
     header * tmp = (header *)(header_pointer);
 //    header * tmp =  (header *)((void *)item - sizeof(header));
@@ -250,14 +262,14 @@ xfree(void* item)
     if(header_size>=PAGE_SIZE){
         int rv = munmap(header_pointer, header_size);
         check_rv(rv);
-        stats.pages_unmapped+=div_up(header_size, PAGE_SIZE);
+        arena->stats.pages_unmapped+=div_up(header_size, PAGE_SIZE);
     }
     else{
         node * current = (node *)header_pointer;
 
 
         node* previous=0;
-        node* next= head_node;
+        node* next= arena->head_node;
         // loop to the next and current adjacent
         while(next&&(next<current)){
             previous=next;
@@ -265,7 +277,7 @@ xfree(void* item)
         }
         // did not go through the loop case
         if(!previous){
-            head_node=current;
+            arena->head_node=current;
         }
             // go through the loop case
         else{
@@ -279,7 +291,7 @@ xfree(void* item)
     // now we need to do possible coalesce
     // TODO: Actually free the item.
     coalesce();
-    pthread_mutex_unlock(&locks[pid]);
+    pthread_mutex_unlock(&arena->lock);
     //hprintstats();
 }
 

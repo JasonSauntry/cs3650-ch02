@@ -36,16 +36,13 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="6ab5657b-b0f0-40e0-b2a3-d702e3f55b65" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/ch02.dir/depend.make" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/ch02.dir/depend.make" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/collatz-ivec-hwx" beforeDir="false" afterPath="$PROJECT_DIR$/collatz-ivec-hwx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/Progress/8" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/ch02.dir/C.includecache" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/ch02.dir/C.includecache" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/ch02.dir/opt_malloc.c.o" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/ch02.dir/opt_malloc.c.o" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/collatz-ivec-opt" beforeDir="false" afterPath="$PROJECT_DIR$/collatz-ivec-opt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/collatz-list-hwx" beforeDir="false" afterPath="$PROJECT_DIR$/collatz-list-hwx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/collatz-list-opt" beforeDir="false" afterPath="$PROJECT_DIR$/collatz-list-opt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frag-hwx" beforeDir="false" afterPath="$PROJECT_DIR$/frag-hwx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frag-opt" beforeDir="false" afterPath="$PROJECT_DIR$/frag-opt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hwx_malloc.o" beforeDir="false" afterPath="$PROJECT_DIR$/hwx_malloc.o" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/opt_malloc.c" beforeDir="false" afterPath="$PROJECT_DIR$/opt_malloc.c" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/opt_malloc.o" beforeDir="false" afterPath="$PROJECT_DIR$/opt_malloc.o" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/time.tmp" beforeDir="false" afterPath="$PROJECT_DIR$/time.tmp" afterDir="false" />
@@ -94,7 +91,7 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1584982125936</updated>
-      <workItem from="1584982127453" duration="13247000" />
+      <workItem from="1584982127453" duration="14964000" />
     </task>
     <servers />
   </component>
