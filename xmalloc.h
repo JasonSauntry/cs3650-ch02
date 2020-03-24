@@ -23,7 +23,9 @@ typedef struct node_t {
 typedef struct header_t{
     size_t size;
 }header;
-void check_rv(int rv);
+
+// void check_rv(int rv);
+
 hm_stats* hgetstats();
 void hprintstats();
 
