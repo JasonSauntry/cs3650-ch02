@@ -10,8 +10,8 @@
 
 // #define LOG
 // #define DEBUG
+// #define ASSERT
 // #define MEMLOG
-#define ASSERT
 
 // TODO: This file should be replaced by another allocator implementation.
 //
@@ -77,7 +77,7 @@ typedef struct free_box {
 	struct free_box* next;
 } free_box;
 
-const size_t box_size = 80;
+const size_t box_size = 40;
 const size_t bunch_pages = 12;
 size_t bunch_boxes() {
 	return (bunch_pages * PAGE_SIZE - sizeof(bunch_header)) / box_size;
@@ -147,6 +147,17 @@ hprintstats()
 	fprintf(stderr, "Frees:    %ld\n", stats.chunks_freed);
 	fprintf(stderr, "Freelen:  %ld\n", stats.free_length);
 
+}
+
+int valid_free_list(bunch_header* bunch) {
+	free_box* box;
+	int count = 0;
+	for (box = bunch->free_list_header; box; count++, box = box->next) {
+		if (box == (void*) 0x1) break;
+		assert(!box->used);
+		assert(box->next != (void*) 0xa3);
+	}
+	return 1;
 }
 
 void initialize_arena(struct MallocArena * arena){
@@ -279,11 +290,21 @@ xmalloc(size_t orig_size)
 			}
 			sized_bucket->first_bunch = bunch;
 			bunch->prev = 0;
+#ifdef ASSERT
+			assert(valid_free_list(bunch));
+#endif
 
 		}
 
 		// Select the first free box in the bunch.
 		first = bunch->free_list_header;
+#ifdef ASSERT
+		assert(valid_free_list(bunch));
+		if (first->used) {
+			puts("Bad free list");
+			abort();
+		}
+#endif
 		if (first->next == (void*) 0x1) {
 #ifdef DEBUG
 			puts("first->next == 0x1");
@@ -300,6 +321,9 @@ xmalloc(size_t orig_size)
 			bunch->free_list_header = first->next;
 		}
 #ifdef ASSERT
+		assert(!bunch->free_list_header || !bunch->free_list_header->used);
+		assert(in_bunch(bunch, first));
+		assert(first != (void*) 0xa3);
 		if (first->used) {
 			puts("Bad free list");
 			abort();
@@ -332,6 +356,9 @@ xmalloc(size_t orig_size)
 #ifdef MEMLOG
 	printf("Thread:\t%ld\tALlocation:\t%ld\n", (long) arena, (long) used);
 #endif
+#ifdef ASSERT
+	assert(valid_free_list(bunch));
+#endif
 
 	pthread_mutex_unlock(&arena->lock);
 	pthread_mutex_unlock(&master_lock);
@@ -357,10 +384,23 @@ xfree(void* item)
 		bunch_header* bunch = ubox->bunch;
 		MallocArena* farena = bunch->arena;
 		pthread_mutex_lock(&farena->lock);
+#ifdef ASSERT
+		assert(valid_free_list(bunch));
+#endif
 
 		// Return it to the free list.
 		free_box* fbox = (free_box*) ubox;
 		
+#ifdef ASSERT
+		if (!in_bunch(bunch, bunch->free_list_header)) {
+			if (bunch->free_list_header || bunch->free_list_length) {
+				puts("Bad free head");
+				abort();
+			}
+		}
+		assert(!bunch->free_list_header || !bunch->free_list_header->used);
+		assert(bunch->free_list_header != (void*) 0xa3);
+#endif
 		fbox->next = bunch->free_list_header;
 		bunch->free_list_header = fbox;
 		bunch->free_list_length++;
@@ -375,8 +415,13 @@ xfree(void* item)
 			puts("Unmapping bunch");
 #endif 
 			// TODO fix linked list.
-			// munmap(bunch, bunch_pages * PAGE_SIZE);
+			munmap(bunch, bunch_pages * PAGE_SIZE);
 		}
+#ifdef ASSERT
+		else {
+			assert(valid_free_list(bunch));
+		}
+#endif
 		pthread_mutex_unlock(&farena->lock);
 	}
 }
