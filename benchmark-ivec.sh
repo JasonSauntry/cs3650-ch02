@@ -11,7 +11,7 @@ time ./collatz-ivec-sys $SIZE
 
 echo ""
 echo "Hwx"
-time ./collatz-ivec-hwx $SIZE
+# time ./collatz-ivec-hwx $SIZE
 
 echo ""
 echo "Optimized"

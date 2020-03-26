@@ -14,7 +14,7 @@
 // #define STATS
 // #define MEMLOG
 // #define REALLOC_LOG
-#define LOOPLOG
+// #define LOOPLOG
 
 // TODO: This file should be replaced by another allocator implementation.
 //
@@ -41,7 +41,8 @@ typedef struct bunch_header {
 	struct bunch_header* next;
 	struct bunch_header* prev;
 	struct free_box* free_list_header;
-	long free_list_length;
+	int free_list_length;
+	int removed_from_list;
 	struct MallocArena* arena;
 	struct bucket* the_bucket;
 
@@ -214,6 +215,7 @@ bunch_header* init_bunch(void* mem, bunch_header* prev,
 	head->free_list_header = 0;
 	head->arena = a;
 	head->the_bucket = the_bucket;
+	head->removed_from_list = 0;
 
 	head->uninitialized = mem + sizeof(bunch_header);
 
@@ -386,6 +388,20 @@ xmalloc(size_t orig_size)
 	// If there isn't a bunch available, map one.
 	if (!bunch) {
 		bunch = map_bunch(sized_bucket, arena);
+	} else if (bunch->free_list_length == 1) {
+		// Remove from bunch list.
+		if (bunch->prev) {
+			bunch->prev->next = bunch->next;
+		} else {
+			bunch->the_bucket->first_bunch = bunch->next;
+		}
+		if (bunch->next) {
+			bunch->next->prev = bunch->prev;
+		}
+
+		bunch->prev = 0;
+		bunch->next = 0;
+		bunch->removed_from_list = 1;
 	}
 
 	free_box* first = pop_first_free(bunch);
@@ -464,7 +480,26 @@ xfree(void* item)
 
 			munmap(bunch, bunch_pages * PAGE_SIZE);
 			farena->stats.pages_unmapped += bunch_pages;
+		} else if (bunch->removed_from_list) {
+			// Re-add to bunch list.
+#ifdef ASSERT
+			if (bunch->prev || bunch->next) {
+				puts("Very bad");
+				abort();
+			}
+#endif
+			bunch->next = bunch->the_bucket->first_bunch;
+			bunch->the_bucket->first_bunch = bunch;
+
+			if (bunch->next) {
+				bunch->next->prev = bunch;
+			}
+
+
+			bunch->removed_from_list = 0;
+		
 		}
+
 		pthread_mutex_unlock(&farena->lock);
 #ifdef STATS
 		hprintstats();
@@ -521,6 +556,7 @@ xrealloc(void* prev, size_t bytes)
 
 					// Insert into new list.
 					bucket* new_bucket = the_arena->bucket + new_size_num;
+					old_bunch->removed_from_list = 0;
 
 					old_bunch->the_bucket = new_bucket;
 					old_bunch->next = new_bucket->first_bunch;
