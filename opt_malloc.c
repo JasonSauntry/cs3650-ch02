@@ -10,7 +10,7 @@
 
 // #define LOG
 // #define DEBUG
-// #define ASSERT
+#define ASSERT
 // #define MEMLOG
 
 // TODO: This file should be replaced by another allocator implementation.
@@ -43,7 +43,8 @@ typedef struct bunch_header {
 } bunch_header;
 
 typedef struct used_box {
-	long used;
+	int used;
+	int _unused;
 	bunch_header* bunch;
 	// available memory;
 } used_box;
@@ -70,14 +71,15 @@ used_box* box_header(void* useful_mem) {
 }
 
 typedef struct free_box {
-	long used;
+	int used;
+	int next_valid; // 0 if next is next box in mem, otherwise check free list.
 	// We know what box we're in.
 	// If next == 0x1, the next box in the free list is the next array cell,
 	// and it itself has never been added to the free list.
 	struct free_box* next;
 } free_box;
 
-const size_t box_size = 40;
+const size_t box_size = 80;
 const size_t bunch_pages = 12;
 size_t bunch_boxes() {
 	return (bunch_pages * PAGE_SIZE - sizeof(bunch_header)) / box_size;
@@ -153,7 +155,7 @@ int valid_free_list(bunch_header* bunch) {
 	free_box* box;
 	int count = 0;
 	for (box = bunch->free_list_header; box; count++, box = box->next) {
-		if (box == (void*) 0x1) break;
+		if (!box->next_valid) break;
 		assert(!box->used);
 		assert(box->next != (void*) 0xa3);
 	}
@@ -167,14 +169,21 @@ void initialize_arena(struct MallocArena * arena){
 	memset(&arena->stats, 0, sizeof(hm_stats));
 }
 
+void init_box(free_box* box) {
+	box->next = 0;
+	box->next_valid = 0;
+	box->used = 0;
+}
+
 bunch_header* init_bunch(void* mem, bunch_header* prev, MallocArena* a) {
 	bunch_header* head = mem;
 	head->next = 0;
 	head->prev = prev;
 	head->free_list_length = bunch_boxes();
 	head->free_list_header = first_box(head);
-	head->free_list_header->next = (void*) 0x1; // Next block in array, not in free list yet.
 	head->arena = a;
+
+	init_box(head->free_list_header);
 	return head;
 }
 
@@ -203,6 +212,63 @@ int in_bunch(bunch_header* bunch, void* mem) {
 	return first_box <= mem && mem <= last_box;
 }
 
+bunch_header* map_bunch(bucket* sized_bucket) {
+#ifdef DEBUG
+	puts("Mapping new bunch");
+#endif
+	int pages = bunch_pages;
+	size_t memsize = pages * PAGE_SIZE;
+	void* foo = mmap(0, memsize, PROT_READ | PROT_WRITE, 
+				MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+	if ((size_t) foo == -1) {
+		check_rv(-1);
+	}
+
+	bunch_header* bunch = init_bunch(foo, 0, arena);
+
+	// Insert into front of linked list.
+	bunch->next = sized_bucket->first_bunch;
+	if (bunch->next) {
+		bunch->next->prev = bunch;
+	}
+	sized_bucket->first_bunch = bunch;
+	bunch->prev = 0;
+#ifdef ASSERT
+	assert(valid_free_list(bunch));
+#endif
+
+	return bunch;
+}
+
+free_box* pop_first_free(bunch_header* bunch) {
+#ifdef ASSERT
+	assert(bunch);
+	assert(bunch->free_list_header);
+	assert(bunch->free_list_length);
+#endif
+	free_box* head = bunch->free_list_header;
+	bunch->free_list_length--;
+
+	if (head->next_valid) {
+		bunch->free_list_header = head->next;
+	} else if (bunch->free_list_length) {
+		bunch->free_list_header = ((void*) head) + box_size;
+		init_box(bunch->free_list_header);
+	} else {
+		bunch->free_list_header = 0;
+	}
+	return head;
+#ifdef ASSERT
+	assert(head);
+	if (bunch->free_list_length) {
+		assert(bunch->free_list_header);
+		assert(bunch->free_list_header->next);
+		assert(in_bunch(bunch, bunch->free_list_header->next));
+		assert(!bunch->free_list_header->used);
+	}
+#endif
+}
+
 void*
 xmalloc(size_t orig_size)
 {
@@ -213,12 +279,13 @@ xmalloc(size_t orig_size)
 	if(arena==NULL){
 		int thread_number;
 		thread_number = atomic_fetch_add(&last_arena_num, 1); 
-		arena = arenas + (thread_number % ARENAS);
+		arena = &arenas[(thread_number % ARENAS)];
 		if (thread_number < ARENAS) {
 			initialize_arena(arena);
 		}
 	}
 
+	pthread_mutex_unlock(&master_lock);
 	pthread_mutex_lock(&arena->lock);
 
 	arena->stats.chunks_allocated += 1;
@@ -230,6 +297,7 @@ xmalloc(size_t orig_size)
 
 	// TODO get the right bucket.
 	bucket* sized_bucket;
+	// if (size > 0) {
 	if (size > box_size) {
 		// puts("TODO need a bigger box.");
 		// abort();
@@ -256,11 +324,9 @@ xmalloc(size_t orig_size)
 
 		// Get the first bunch with stuff in it.
 		bunch = sized_bucket->first_bunch;
-		bunch_header* prev = 0;
 		int count = 0;
 
 		for (bunch = sized_bucket->first_bunch; bunch && bunch->free_list_length == 0; bunch = bunch->next) {
-			prev = bunch;
 			count++;
 		}
 
@@ -270,88 +336,18 @@ xmalloc(size_t orig_size)
 
 		// If there isn't a bunch available, map one.
 		if (!bunch) {
-#ifdef DEBUG
-			puts("Mapping new bunch");
-#endif
-			int pages = bunch_pages;
-			size_t memsize = pages * PAGE_SIZE;
-			void* foo = mmap(0, memsize, PROT_READ | PROT_WRITE, 
-						MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-			if ((size_t) foo == -1) {
-				check_rv(-1);
-			}
-
-			bunch = init_bunch(foo, prev, arena);
-
-			// Insert into front of linked list.
-			bunch->next = sized_bucket->first_bunch;
-			if (bunch->next) {
-				bunch->next->prev = bunch;
-			}
-			sized_bucket->first_bunch = bunch;
-			bunch->prev = 0;
-#ifdef ASSERT
-			assert(valid_free_list(bunch));
-#endif
-
+			bunch = map_bunch(sized_bucket);
 		}
 
-		// Select the first free box in the bunch.
-		first = bunch->free_list_header;
-#ifdef ASSERT
-		assert(valid_free_list(bunch));
-		if (first->used) {
-			puts("Bad free list");
-			abort();
-		}
-#endif
-		if (first->next == (void*) 0x1) {
-#ifdef DEBUG
-			puts("first->next == 0x1");
-#endif
-			if (bunch->free_list_length > 1) {
-				bunch->free_list_header = (void*) first + box_size;
-				// Next is garbage, important bits should be initialized.
-				bunch->free_list_header->next = (void*) 0x1;
-				bunch->free_list_header->used = 0;
-			} else {
-				bunch->free_list_header = 0;
-			}
-		} else {
-			bunch->free_list_header = first->next;
-		}
-#ifdef ASSERT
-		assert(!bunch->free_list_header || !bunch->free_list_header->used);
-		assert(in_bunch(bunch, first));
-		assert(first != (void*) 0xa3);
-		if (first->used) {
-			puts("Bad free list");
-			abort();
-		}
-		// printf("%d\n", bunch->free_list_header && bunch->free_list_header->used);
-		if(bunch->free_list_length > 1 && bunch->free_list_header->used) {
-			puts("foo");
-			int used = bunch->free_list_header->used;
-			if (used) {
-				puts("Bad");
-				abort();
-			}
-		}
-		assert(bunch->next != (void*) 0x1);
-		if (bunch->prev == (void*) 0x1) {
-			puts("Bad");
-			abort();
-		}
-#endif
-		
+		first = pop_first_free(bunch);
 	}
 
 	// Allocate it.
 	used_box* used = (void*) first;
 	used->bunch = bunch;
-	bunch->free_list_length--;
 	sized_bucket->last_malloc = used;
 	assert(bunch->free_list_header || bunch->free_list_length == 0);
+	assert(!bunch->free_list_header || !bunch->free_list_header->used);
 	
 #ifdef MEMLOG
 	printf("Thread:\t%ld\tALlocation:\t%ld\n", (long) arena, (long) used);
@@ -361,7 +357,6 @@ xmalloc(size_t orig_size)
 #endif
 
 	pthread_mutex_unlock(&arena->lock);
-	pthread_mutex_unlock(&master_lock);
 
 	// Done
 	return box_usable_mem(used, bunch);
@@ -390,6 +385,8 @@ xfree(void* item)
 
 		// Return it to the free list.
 		free_box* fbox = (free_box*) ubox;
+		void* foo = fbox;
+		foo++;
 		
 #ifdef ASSERT
 		if (!in_bunch(bunch, bunch->free_list_header)) {
@@ -401,13 +398,13 @@ xfree(void* item)
 		assert(!bunch->free_list_header || !bunch->free_list_header->used);
 		assert(bunch->free_list_header != (void*) 0xa3);
 #endif
-		fbox->next = bunch->free_list_header;
-		bunch->free_list_header = fbox;
-		bunch->free_list_length++;
-		fbox->used = 0;
-		if (arena->bucket.last_malloc == (void*) fbox) {
-			arena->bucket.last_malloc = 0;
-		}
+		// fbox->next = bunch->free_list_header;
+		// bunch->free_list_header = fbox;
+		// bunch->free_list_length++;
+		// fbox->used = 0;
+		// if (arena->bucket.last_malloc == (void*) fbox) {
+		// 	arena->bucket.last_malloc = 0;
+		// }
 
 		// munmap if empty.
 		if (bunch->free_list_length == bunch_boxes()) {
