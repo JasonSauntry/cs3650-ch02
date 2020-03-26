@@ -9,11 +9,12 @@
 #define NUMBER 6
 
 // #define LOG
-#define DEBUG
-#define ASSERT
+// #define DEBUG
+// #define ASSERT
 // #define STATS
 // #define MEMLOG
 // #define REALLOC_LOG
+#define LOOPLOG
 
 // TODO: This file should be replaced by another allocator implementation.
 //
@@ -321,7 +322,7 @@ bunch_header* get_first_usable_bunch(bucket* the_bucket) {
 		count++;
 		if (bunch) {
 			if (bunch->free_list_length > 0) {
-#ifdef DEBUG
+#ifdef LOOPLOG
 				printf("Loop iterations:\t%d\n", count);
 #endif
 				return bunch;
@@ -329,14 +330,14 @@ bunch_header* get_first_usable_bunch(bucket* the_bucket) {
 				bunch = bunch->next;
 			}
 		} else {
-#ifdef DEBUG
+#ifdef LOOPLOG
 			printf("Loop iterations:\t%d\n", count);
 #endif
 			return 0;
 		}
 	}
 
-#ifdef DEBUG
+#ifdef LOOPLOG
 	printf("Loop iterations:\t%d\n", count);
 #endif
 	return bunch;
@@ -498,7 +499,7 @@ xrealloc(void* prev, size_t bytes)
 				int bunch_max_things = bunch_boxes(old_size_num);
 				int things_in_bunch = bunch_max_things - old_bunch->free_list_length;
 				// If there is only one thing, and we are first.
-				if (things_in_bunch == 1 && !old_bunch->free_list_header && new_size_num < count_sizes) {
+				if (things_in_bunch == 1 && !old_bunch->free_list_header && new_size_num >= 0) {
 					// We can make the bunch a bigger bunch.
 					// old_bunch->arena; unchanged.
 #ifdef ASSERT
