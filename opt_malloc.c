@@ -13,6 +13,7 @@
 // #define ASSERT
 // #define STATS
 // #define MEMLOG
+#define REALLOC_LOG
 
 // TODO: This file should be replaced by another allocator implementation.
 //
@@ -472,46 +473,37 @@ xrealloc(void* prev, size_t bytes)
 	puts("Realloc");
 #endif
 
+	if (prev) {
+		if (bytes == 0) {
+			xfree(prev);
+			return 0x0;
+		} else {
+			used_box* old_box = box_header(prev);
+			bunch_header* old_bunch = old_box->bunch;
+			int old_size_num = old_bunch->the_bucket->size_num;
+			int new_size_num = number_from_size(bytes + sizeof(used_box));
+
+			if (new_size_num <= old_size_num) {
+				return prev;
+			} else {
+				// TODO in some cases, this can be made faster.
+#ifdef REALLOC_LOG
+				int bunch_max_things = bunch_boxes(old_size_num);
+				int things_in_bunch = bunch_max_things - old_bunch->free_list_length;
+				printf("%d\t\n", things_in_bunch);
+#endif
 
 
-	header * allocated_node = (header *)((char*)prev-sizeof(header));
-	size_t old_size =  allocated_node->size-sizeof(header);
-	old_size = 0; // TODO, but this should fix the immediate bug.
-	// first, check if the new length is 0,
-	// if it is, free old pointer and return null.
-	if(bytes==0){
-		xfree(prev);
-		return NULL;
-	}
-		// second, check if the old pointer is null or not.
-		// if it is, return allocated memory address.
-	else if(!prev){
-
+				void* new = xmalloc(box_sizes[new_size_num] - sizeof(used_box));
+				memcpy(new, prev, bytes);
+				xfree(prev);
+				return new;
+			}
+		}
+	} else {
 		return xmalloc(bytes);
 	}
 
-		// third, check if new size smaller than the old size,
-		// if it is, return old pointer.
-	else if(bytes<=old_size){
-		return prev;
-	}
-		// last, check if prev and lengths inequality,
-		// and then allocate new space and free old space.
-		// here, memcpy from string.h gives us a good option to copy bytes on the memory.
-	else{
-		assert((prev)&&(bytes>=old_size));
-		void * ret = xmalloc(bytes);
-		// check if malloc returns a good pointer.
-		if(ret){
-			memcpy(ret, prev, old_size);
-			xfree(prev);
-		}
-		// return new pointer.
-#ifdef DEBUG
-		puts("Done realloc");
-#endif
-		return ret;
-	}
 
 #ifdef DEBUG
 	puts("Done realloc");
