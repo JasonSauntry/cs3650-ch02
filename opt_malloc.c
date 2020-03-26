@@ -11,7 +11,7 @@
 // #define LOG
 // #define DEBUG
 #define ASSERT
-#define MEMLOG
+// #define MEMLOG
 
 // TODO: This file should be replaced by another allocator implementation.
 //
@@ -431,8 +431,11 @@ xrealloc(void* prev, size_t bytes)
 	puts("Realloc");
 #endif
 
+
+
 	header * allocated_node = (header *)((char*)prev-sizeof(header));
 	size_t old_size =  allocated_node->size-sizeof(header);
+	old_size = 0; // TODO, but this should fix the immediate bug.
 	// first, check if the new length is 0,
 	// if it is, free old pointer and return null.
 	if(bytes==0){
