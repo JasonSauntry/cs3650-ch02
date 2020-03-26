@@ -10,8 +10,8 @@
 
 // #define LOG
 // #define DEBUG
-#define ASSERT
-#define STATS
+// #define ASSERT
+// #define STATS
 // #define MEMLOG
 
 // TODO: This file should be replaced by another allocator implementation.
@@ -41,6 +41,7 @@ typedef struct bunch_header {
 	struct free_box* free_list_header;
 	long free_list_length;
 	struct MallocArena* arena;
+	struct bucket* the_bucket;
 
 	void* uninitialized; // Points to where we should create the free_box, if none is in the free list.
 } bunch_header;
@@ -82,10 +83,23 @@ typedef struct free_box {
 	struct free_box* next;
 } free_box;
 
-const size_t box_size = 80;
+const size_t box_sizes[] = {32, 56, 96, 144, 176, 272, 528, 1040, 2064, 4112, 8224, 16432};
+#define  count_sizes        (1  + 1 + 1  + 1 +  1 +  1 +  1 +   1 +   1 +   1 +   1 +    1 )
+
+size_t box_size(int number) {
+	return box_sizes[number];
+}
+
+int number_from_size(size_t size) {
+	for (int num = 0; num < count_sizes; num++) {
+		if (size <= box_sizes[num]) return num;
+	}
+	return -1; // DNE
+}
+
 const size_t bunch_pages = 12;
-size_t bunch_boxes() {
-	return (bunch_pages * PAGE_SIZE - sizeof(bunch_header)) / box_size;
+size_t bunch_boxes(int number) {
+	return (bunch_pages * PAGE_SIZE - sizeof(bunch_header)) / box_size(number);
 }
 
 void* first_box(bunch_header* bunch) {
@@ -93,25 +107,27 @@ void* first_box(bunch_header* bunch) {
 	return top + sizeof(bunch_header);
 }
 
-// For now, only 1 bucket, which 
 typedef struct bucket {
 	bunch_header* first_bunch;
 
 	// Unused. TODO possibly delete.
 	used_box* last_malloc; // Invariant: is null, or points to a alloc that is used.
 
+	int size_num;
+
 
 } bucket;
 
-void init_bucket(bucket* bucket) {
+void init_bucket(bucket* bucket, int size_num) {
 	bucket->first_bunch = 0;
 	bucket->last_malloc = 0;
+	bucket->size_num = size_num;
 
 }
 
 typedef struct MallocArena {
 	pthread_mutex_t lock;
-	bucket bucket; // Only 1 for now.
+	bucket bucket[count_sizes];
 	hm_stats stats; 
 } MallocArena;
 
@@ -161,21 +177,23 @@ hprintstats()
 
 }
 
-int valid_free_list(bunch_header* bunch) {
-	free_box* box;
-	int count = 0;
-	for (box = bunch->free_list_header; box; count++, box = box->next) {
-		if (!box->next_valid) break;
-		assert(!box->used);
-		assert(box->next != (void*) 0xa3);
-	}
-	return 1;
-}
+// int valid_free_list(bunch_header* bunch) {
+// 	free_box* box;
+// 	int count = 0;
+// 	for (box = bunch->free_list_header; box; count++, box = box->next) {
+// 		if (!box->next_valid) break;
+// 		assert(!box->used);
+// 		assert(box->next != (void*) 0xa3);
+// 	}
+// 	return 1;
+// }
 
 void initialize_arena(struct MallocArena * arena){
 	// Called exactly once per arena, guaranteed no data race.
-	init_bucket(&arena->bucket);
-	pthread_mutex_init (&arena->lock, 0);
+	for (int i = 0; i < count_sizes; i++) {
+		init_bucket(&arena->bucket[i], i);
+	}
+	pthread_mutex_init(&arena->lock, 0);
 	memset(&arena->stats, 0, sizeof(hm_stats));
 }
 
@@ -185,13 +203,15 @@ void init_box(free_box* box) {
 	box->used = 0;
 }
 
-bunch_header* init_bunch(void* mem, bunch_header* prev, MallocArena* a) {
+bunch_header* init_bunch(void* mem, bunch_header* prev, 
+		MallocArena* a, bucket* the_bucket) {
 	bunch_header* head = mem;
 	head->next = 0;
 	head->prev = prev;
-	head->free_list_length = bunch_boxes();
+	head->free_list_length = bunch_boxes(the_bucket->size_num);
 	head->free_list_header = 0;
 	head->arena = a;
+	head->the_bucket = the_bucket;
 
 	head->uninitialized = mem + sizeof(bunch_header);
 
@@ -219,7 +239,8 @@ void lfree(void* item, size_t size) {
 int in_bunch(bunch_header* bunch, void* mem) {
 	void* start = bunch;
 	void* first_box = start + sizeof(bunch_header);
-	void* last_box = first_box + bunch_boxes() * box_size;
+	void* last_box = first_box + bunch_boxes(bunch->the_bucket->size_num) 
+		* box_size(bunch->the_bucket->size_num);
 	return first_box <= mem && mem <= last_box;
 }
 
@@ -236,7 +257,7 @@ bunch_header* map_bunch(bucket* sized_bucket, MallocArena* a) {
 		check_rv(-1);
 	}
 
-	bunch_header* bunch = init_bunch(foo, 0, arena);
+	bunch_header* bunch = init_bunch(foo, 0, arena, sized_bucket);
 
 	// Insert into front of linked list.
 	bunch->next = sized_bucket->first_bunch;
@@ -246,7 +267,7 @@ bunch_header* map_bunch(bucket* sized_bucket, MallocArena* a) {
 	sized_bucket->first_bunch = bunch;
 	bunch->prev = 0;
 #ifdef ASSERT
-	assert(valid_free_list(bunch));
+	// assert(valid_free_list(bunch));
 #endif
 
 	return bunch;
@@ -265,7 +286,7 @@ free_box* pop_first_free(bunch_header* bunch) {
 		bunch->free_list_header = head->next;
 	} else {
 		head = bunch->uninitialized;
-		bunch->uninitialized += box_size;
+		bunch->uninitialized += box_size(bunch->the_bucket->size_num);
 		init_box(head);
 	}
 	return head;
@@ -282,11 +303,12 @@ free_box* pop_first_free(bunch_header* bunch) {
 }
 
 bucket* get_bucket(size_t total_size, MallocArena* arena) {
-	if (total_size > box_size) {
+	int num = number_from_size(total_size);
+	if (num == -1) {
 		return 0;
 	} else {
-		// TODO
-		return &arena->bucket;
+		// int num = number_from_size(size);
+		return arena->bucket + num;
 	}
 }
 
@@ -376,7 +398,7 @@ xmalloc(size_t orig_size)
 	pthread_mutex_unlock(&arena->lock);
 
 #ifdef STATS
-		hprintstats();
+	hprintstats();
 #endif
 
 	// Done
@@ -404,7 +426,7 @@ xfree(void* item)
 		i++;
 		pthread_mutex_lock(&farena->lock);
 #ifdef ASSERT
-		assert(valid_free_list(bunch));
+		// assert(valid_free_list(bunch));
 #endif
 		arena->stats.chunks_freed++;
 
@@ -415,16 +437,23 @@ xfree(void* item)
 		bunch->free_list_header = fbox;
 		bunch->free_list_length++;
 		fbox->used = 0;
-		if (arena->bucket.last_malloc == (void*) fbox) {
-			arena->bucket.last_malloc = 0;
-		}
 
 		// munmap if empty.
-		if (bunch->free_list_length == bunch_boxes()) {
+		if (bunch->free_list_length == bunch_boxes(bunch->the_bucket->size_num)) {
 #ifdef DEBUG
 			puts("Unmapping bunch");
 #endif 
 			// TODO fix linked list.
+			if (bunch->next) {
+				bunch->next->prev = bunch->prev;
+			}
+			if (bunch->prev) {
+				bunch->prev->next = bunch->next;
+			} else {
+				// First
+				bunch->the_bucket->first_bunch = bunch->next;
+			}
+
 			munmap(bunch, bunch_pages * PAGE_SIZE);
 			farena->stats.pages_unmapped += bunch_pages;
 		}
