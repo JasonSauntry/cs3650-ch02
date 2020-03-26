@@ -11,6 +11,7 @@
 // #define LOG
 // #define DEBUG
 #define ASSERT
+#define STATS
 // #define MEMLOG
 
 // TODO: This file should be replaced by another allocator implementation.
@@ -148,13 +149,15 @@ hgetstats()
 void
 hprintstats()
 {
+	pthread_mutex_lock(&master_lock);
 	hm_stats stats = *(hgetstats());
-	fprintf(stderr, "\n== husky malloc stats ==\n");
-	fprintf(stderr, "Mapped:   %ld\n", stats.pages_mapped);
-	fprintf(stderr, "Unmapped: %ld\n", stats.pages_unmapped);
-	fprintf(stderr, "Allocs:   %ld\n", stats.chunks_allocated);
-	fprintf(stderr, "Frees:    %ld\n", stats.chunks_freed);
-	fprintf(stderr, "Freelen:  %ld\n", stats.free_length);
+	fprintf(stdout, "\n== husky malloc stats ==\n");
+	fprintf(stdout, "Mapped:   %ld\n", stats.pages_mapped);
+	fprintf(stdout, "Unmapped: %ld\n", stats.pages_unmapped);
+	fprintf(stdout, "Allocs:   %ld\n", stats.chunks_allocated);
+	fprintf(stdout, "Frees:    %ld\n", stats.chunks_freed);
+	fprintf(stdout, "Freelen:  %ld\n", stats.free_length);
+	pthread_mutex_unlock(&master_lock);
 
 }
 
@@ -220,7 +223,7 @@ int in_bunch(bunch_header* bunch, void* mem) {
 	return first_box <= mem && mem <= last_box;
 }
 
-bunch_header* map_bunch(bucket* sized_bucket) {
+bunch_header* map_bunch(bucket* sized_bucket, MallocArena* a) {
 #ifdef DEBUG
 	puts("Mapping new bunch");
 #endif
@@ -228,6 +231,7 @@ bunch_header* map_bunch(bucket* sized_bucket) {
 	size_t memsize = pages * PAGE_SIZE;
 	void* foo = mmap(0, memsize, PROT_READ | PROT_WRITE, 
 				MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+	a->stats.pages_mapped += pages;
 	if ((size_t) foo == -1) {
 		check_rv(-1);
 	}
@@ -330,7 +334,6 @@ xmalloc(size_t orig_size)
 	pthread_mutex_unlock(&master_lock);
 	pthread_mutex_lock(&arena->lock);
 
-	arena->stats.chunks_allocated += 1;
 	size_t size = orig_size + sizeof(used_box);
 
 #ifdef LOG
@@ -345,12 +348,14 @@ xmalloc(size_t orig_size)
 		return lalloc(orig_size + sizeof(big_box));
 	} 
 
+	arena->stats.chunks_allocated += 1;
+
 	// Get the first bunch with stuff in it.
 	bunch_header* bunch = get_first_usable_bunch(sized_bucket);
 
 	// If there isn't a bunch available, map one.
 	if (!bunch) {
-		bunch = map_bunch(sized_bucket);
+		bunch = map_bunch(sized_bucket, arena);
 	}
 
 	free_box* first = pop_first_free(bunch);
@@ -369,6 +374,10 @@ xmalloc(size_t orig_size)
 #endif
 
 	pthread_mutex_unlock(&arena->lock);
+
+#ifdef STATS
+		hprintstats();
+#endif
 
 	// Done
 	return box_usable_mem(used, bunch);
@@ -397,19 +406,18 @@ xfree(void* item)
 #ifdef ASSERT
 		assert(valid_free_list(bunch));
 #endif
+		arena->stats.chunks_freed++;
 
 		// Return it to the free list.
 		free_box* fbox = (free_box*) ubox;
-		void* foo = fbox;
-		foo++;
 		
-		// fbox->next = bunch->free_list_header;
-		// bunch->free_list_header = fbox;
-		// bunch->free_list_length++;
-		// fbox->used = 0;
-		// if (arena->bucket.last_malloc == (void*) fbox) {
-		// 	arena->bucket.last_malloc = 0;
-		// }
+		fbox->next = bunch->free_list_header;
+		bunch->free_list_header = fbox;
+		bunch->free_list_length++;
+		fbox->used = 0;
+		if (arena->bucket.last_malloc == (void*) fbox) {
+			arena->bucket.last_malloc = 0;
+		}
 
 		// munmap if empty.
 		if (bunch->free_list_length == bunch_boxes()) {
@@ -418,8 +426,12 @@ xfree(void* item)
 #endif 
 			// TODO fix linked list.
 			munmap(bunch, bunch_pages * PAGE_SIZE);
+			farena->stats.pages_unmapped += bunch_pages;
 		}
 		pthread_mutex_unlock(&farena->lock);
+#ifdef STATS
+		hprintstats();
+#endif
 	}
 }
 
