@@ -9,7 +9,7 @@
 #define NUMBER 6
 
 // #define LOG
-// #define DEBUG
+#define DEBUG
 #define ASSERT
 // #define STATS
 // #define MEMLOG
@@ -321,11 +321,17 @@ bunch_header* get_first_usable_bunch(bucket* the_bucket) {
 		count++;
 		if (bunch) {
 			if (bunch->free_list_length > 0) {
+#ifdef DEBUG
+				printf("Loop iterations:\t%d\n", count);
+#endif
 				return bunch;
 			} else {
 				bunch = bunch->next;
 			}
 		} else {
+#ifdef DEBUG
+			printf("Loop iterations:\t%d\n", count);
+#endif
 			return 0;
 		}
 	}
@@ -492,7 +498,7 @@ xrealloc(void* prev, size_t bytes)
 				int bunch_max_things = bunch_boxes(old_size_num);
 				int things_in_bunch = bunch_max_things - old_bunch->free_list_length;
 				// If there is only one thing, and we are first.
-				if (things_in_bunch == 1 && !old_bunch->free_list_header) {
+				if (things_in_bunch == 1 && !old_bunch->free_list_header && new_size_num < count_sizes) {
 					// We can make the bunch a bigger bunch.
 					// old_bunch->arena; unchanged.
 #ifdef ASSERT
@@ -533,7 +539,8 @@ xrealloc(void* prev, size_t bytes)
 				} else {
 					pthread_mutex_unlock(&the_arena->lock);
 					void* new = xmalloc(box_sizes[new_size_num] - sizeof(used_box));
-					memcpy(new, prev, bytes);
+					size_t old_size_raw = box_sizes[old_size_num] - sizeof(used_box);
+					memcpy(new, prev, old_size_raw);
 					xfree(prev);
 					return new;
 				}
