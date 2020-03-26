@@ -10,10 +10,10 @@
 
 // #define LOG
 // #define DEBUG
-// #define ASSERT
+#define ASSERT
 // #define STATS
 // #define MEMLOG
-#define REALLOC_LOG
+// #define REALLOC_LOG
 
 // TODO: This file should be replaced by another allocator implementation.
 //
@@ -487,17 +487,56 @@ xrealloc(void* prev, size_t bytes)
 				return prev;
 			} else {
 				// TODO in some cases, this can be made faster.
-#ifdef REALLOC_LOG
+				MallocArena* the_arena = old_bunch->arena;
+				pthread_mutex_lock(&the_arena->lock);
 				int bunch_max_things = bunch_boxes(old_size_num);
 				int things_in_bunch = bunch_max_things - old_bunch->free_list_length;
-				printf("%d\t\n", things_in_bunch);
+				// If there is only one thing, and we are first.
+				if (things_in_bunch == 1 && !old_bunch->free_list_header) {
+					// We can make the bunch a bigger bunch.
+					// old_bunch->arena; unchanged.
+#ifdef ASSERT
+					assert(!old_bunch->free_list_header);
+#endif 
+					old_bunch->free_list_length = bunch_boxes(new_size_num) - 1;
+					old_bunch->uninitialized = first_box(old_bunch) + box_size(new_size_num);
+
+					// Fix list.
+					// Remove from old list.
+					if (old_bunch->next) {
+						old_bunch->next->prev = old_bunch->prev;
+					}
+					if (old_bunch->prev) {
+						old_bunch->prev->next = old_bunch->next;
+					} else {
+						old_bunch->the_bucket->first_bunch = old_bunch->next;
+					}
+
+					// Insert into new list.
+					bucket* new_bucket = the_arena->bucket + new_size_num;
+
+					old_bunch->the_bucket = new_bucket;
+					old_bunch->next = new_bucket->first_bunch;
+					if (old_bunch->next) {
+						old_bunch->next->prev = old_bunch;
+					}
+					new_bucket->first_bunch = old_bunch;
+					old_bunch->prev = 0;
+
+					pthread_mutex_unlock(&the_arena->lock);
+
+#ifdef ASSERT
+					assert(old_box == (void*) old_bunch + sizeof(bunch_header));
 #endif
 
-
-				void* new = xmalloc(box_sizes[new_size_num] - sizeof(used_box));
-				memcpy(new, prev, bytes);
-				xfree(prev);
-				return new;
+					return prev;
+				} else {
+					pthread_mutex_unlock(&the_arena->lock);
+					void* new = xmalloc(box_sizes[new_size_num] - sizeof(used_box));
+					memcpy(new, prev, bytes);
+					xfree(prev);
+					return new;
+				}
 			}
 		}
 	} else {

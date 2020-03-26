@@ -24,7 +24,9 @@
 #include "xmalloc.h"
 #include "ivec.h"
 
-#define THREADS 4
+// TODO undo
+// #define THREADS 4
+#define THREADS 1
 
 typedef struct num_task {
     ivec* vals;

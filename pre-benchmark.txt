@@ -1,0 +1,46 @@
+
+Benchmarking vector:
+
+System:
+Max steps is at 871: 178 steps
+
+real	0m0.004s
+user	0m0.010s
+sys	0m0.000s
+
+Hwx
+Max steps is at 871: 178 steps
+
+real	0m0.113s
+user	0m0.111s
+sys	0m0.024s
+
+Optimized
+Max steps is at 871: 178 steps
+
+real	0m0.009s
+user	0m0.010s
+sys	0m0.010s
+
+Benchmarking list:
+
+System
+Max steps is at 871: 178 steps
+
+real	0m0.006s
+user	0m0.010s
+sys	0m0.006s
+
+Hwx
+Max steps is at 871: 178 steps
+
+real	0m2.367s
+user	0m2.418s
+sys	0m0.163s
+
+Optimized
+Max steps is at 871: 178 steps
+
+real	0m0.019s
+user	0m0.049s
+sys	0m0.011s
