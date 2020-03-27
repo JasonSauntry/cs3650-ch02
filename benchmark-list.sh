@@ -15,4 +15,4 @@ echo "Hwx"
 
 echo
 echo "Optimized"
-time ./collatz-list-opt $SIZE
+# time ./collatz-list-opt $SIZE

@@ -15,6 +15,7 @@
 // #define MEMLOG
 // #define REALLOC_LOG
 // #define LOOPLOG
+// #define SYSLOG
 
 // TODO: This file should be replaced by another allocator implementation.
 //
@@ -100,7 +101,7 @@ int number_from_size(size_t size) {
 	return -1; // DNE
 }
 
-const size_t bunch_pages = 12;
+const size_t bunch_pages = 64; // mmap is lazy, so might as well go big.
 size_t bunch_boxes(int number) {
 	return (bunch_pages * PAGE_SIZE - sizeof(bunch_header)) / box_size(number);
 }
@@ -226,6 +227,11 @@ void* lalloc(size_t size) {
 #ifdef LOG
 	printf("Lalloc\t%ld\n", size);
 #endif
+#ifdef SYSLOG
+	int pages = size / PAGE_SIZE;
+	if (size % PAGE_SIZE != 0) pages++;
+	printf("mmap\t%d\tlalloc\t\n", pages);
+#endif
 	big_box* big = mmap(0, size, PROT_READ | PROT_WRITE,
 			MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
 	big->box.bunch = 0;
@@ -236,6 +242,11 @@ void* lalloc(size_t size) {
 void lfree(void* item, size_t size) {
 #ifdef LOG
 	puts("Lfree");
+#endif
+#ifdef SYSLOG
+	int pages = size / PAGE_SIZE;
+	if (size % PAGE_SIZE != 0) pages++;
+	printf("munmap\t%d\tlfree\t\n", pages);
 #endif
 	check_rv(munmap(item, size));
 }
@@ -254,6 +265,9 @@ bunch_header* map_bunch(bucket* sized_bucket, MallocArena* a) {
 #endif
 	int pages = bunch_pages;
 	size_t memsize = pages * PAGE_SIZE;
+#ifdef SYSLOG
+	printf("mmap\t%d\t%d\n", pages, sized_bucket->size_num);
+#endif
 	void* foo = mmap(0, memsize, PROT_READ | PROT_WRITE, 
 				MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
 	a->stats.pages_mapped += pages;
@@ -412,7 +426,8 @@ xmalloc(size_t orig_size)
 	// sized_bucket->last_malloc = used;
 
 #ifdef MEMLOG
-	printf("Thread:\t%p\tALlocation:\t%p\tOffset:\t%ld\n", arena, used,  
+	printf("Thread:\t%p\tSize:\t%d\tALlocation:\t%p\tOffset:\t%ld\n", 
+			arena, sized_bucket->size_num, used,  
 			((void*) used - (void*) bunch));
 #endif
 #ifdef ASSERT
@@ -461,6 +476,11 @@ xfree(void* item)
 		bunch->free_list_header = fbox;
 		bunch->free_list_length++;
 		fbox->used = 0;
+#ifdef MEMLOG
+		printf("Thread:\t%p\tSize:\t%d\tDealloc:\t%p\tOffset:\t%ld\n", 
+				farena, bunch->the_bucket->size_num, ubox,  
+				((void*) ubox - (void*) bunch));
+#endif
 
 		// munmap if empty.
 		if (bunch->free_list_length == bunch_boxes(bunch->the_bucket->size_num)) {
@@ -478,6 +498,9 @@ xfree(void* item)
 				bunch->the_bucket->first_bunch = bunch->next;
 			}
 
+#ifdef SYSLOG
+			printf("munmap\t%ld\t%d\t\n", bunch_pages, bunch->the_bucket->size_num);
+#endif
 			munmap(bunch, bunch_pages * PAGE_SIZE);
 			farena->stats.pages_unmapped += bunch_pages;
 		} else if (bunch->removed_from_list) {
