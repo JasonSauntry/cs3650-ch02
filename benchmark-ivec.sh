@@ -7,7 +7,7 @@ echo "Benchmarking vector:"
 
 echo ""
 echo "System:"
-time ./collatz-ivec-sys $SIZE
+# time ./collatz-ivec-sys $SIZE
 
 echo ""
 echo "Hwx"

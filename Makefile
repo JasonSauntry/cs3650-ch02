@@ -42,13 +42,10 @@ frag-hwx: frag_main.o hwx_malloc.o
 
 %.o : %.c $(HDRS) Makefile
 
-report: report.txt report.pdf
+report: report.txt
 
 report.txt: report.md
 	cp report.md report.txt
-
-report.pdf: report.md 
-	pandoc -o $@ $^
 
 clean:
 	rm -f *.o $(BINS) time.tmp outp.tmp gmon.out log.tsv
