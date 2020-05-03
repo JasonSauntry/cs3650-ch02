@@ -8,10 +8,10 @@ HDRS := $(wildcard *.h)
 SRCS := $(wildcard *.c)
 OBJS := $(SRCS:.c=.o)
 
-CFLAGS := -g -Og -Wall -Werror
+CFLAGS := -g -Og -Wall -Werror -pg
 LDLIBS := -lpthread
 
-all: $(BINS)
+all: $(BINS) report
 
 collatz-list-sys: list_main.o sys_malloc.o
 	gcc $(CFLAGS) -o $@ $^ $(LDLIBS)
@@ -42,10 +42,15 @@ frag-hwx: frag_main.o hwx_malloc.o
 
 %.o : %.c $(HDRS) Makefile
 
+report: report.txt
+
+report.txt: report.md
+	cp report.md report.txt
+
 clean:
-	rm -f *.o $(BINS) time.tmp outp.tmp
+	rm -f *.o $(BINS) time.tmp outp.tmp gmon.out log.tsv
 
 test:
 	perl test.pl
 
-.PHONY: clean test
+.PHONY: clean test report
